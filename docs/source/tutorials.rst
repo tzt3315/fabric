@@ -27,14 +27,26 @@ Finally, we offer two chaincode tutorials. One oriented to developers,
    :maxdepth: 1
    :caption: Tutorials
 
+<<<<<<< HEAD
    build_network
    write_first_app
    channel_update_tutorial
    upgrading_your_network_tutorial
+=======
+   write_first_app
+   build_network
+   channel_update_tutorial
+   upgrading_your_network_tutorial
+   private_data_tutorial
+>>>>>>> 95483dd862a768c588c2582e88f6b9da37a47ed7
    chaincode
    chaincode4ade
    chaincode4noah
    systemchaincode
+<<<<<<< HEAD
+=======
+   couchdb_tutorial
+>>>>>>> 95483dd862a768c588c2582e88f6b9da37a47ed7
    videos
 
 .. Licensed under Creative Commons Attribution 4.0 International License

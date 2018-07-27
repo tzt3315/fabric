@@ -4,7 +4,7 @@ Copyright IBM Corp. All Rights Reserved.
 SPDX-License-Identifier: Apache-2.0
 */
 
-package endorser
+package endorser_test
 
 import (
 	"context"
@@ -16,9 +16,18 @@ import (
 	mc "github.com/hyperledger/fabric/common/mocks/config"
 	"github.com/hyperledger/fabric/common/mocks/resourcesconfig"
 	"github.com/hyperledger/fabric/common/util"
+<<<<<<< HEAD
 	"github.com/hyperledger/fabric/core/endorser/mocks"
+=======
+	"github.com/hyperledger/fabric/core/chaincode/platforms"
+	"github.com/hyperledger/fabric/core/chaincode/platforms/golang"
+	"github.com/hyperledger/fabric/core/common/ccprovider"
+	"github.com/hyperledger/fabric/core/endorser"
+	"github.com/hyperledger/fabric/core/endorser/mocks"
+	"github.com/hyperledger/fabric/core/handlers/endorsement/builtin"
+>>>>>>> 95483dd862a768c588c2582e88f6b9da37a47ed7
 	"github.com/hyperledger/fabric/core/ledger"
-	"github.com/hyperledger/fabric/core/mocks/ccprovider"
+	mockccprovider "github.com/hyperledger/fabric/core/mocks/ccprovider"
 	em "github.com/hyperledger/fabric/core/mocks/endorser"
 	"github.com/hyperledger/fabric/msp"
 	"github.com/hyperledger/fabric/msp/mgmt"
@@ -26,11 +35,16 @@ import (
 	"github.com/hyperledger/fabric/protos/common"
 	"github.com/hyperledger/fabric/protos/ledger/rwset"
 	pb "github.com/hyperledger/fabric/protos/peer"
+	"github.com/hyperledger/fabric/protos/transientstore"
 	"github.com/hyperledger/fabric/protos/utils"
 	"github.com/pkg/errors"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 )
+
+func pvtEmptyDistributor(_ string, _ string, _ *transientstore.TxPvtReadWriteSetWithConfigInfo, _ uint64) error {
+	return nil
+}
 
 func getSignedPropWithCHID(ccid, ccver, chid string, t *testing.T) *pb.SignedProposal {
 	ccargs := [][]byte{[]byte("args")}
@@ -58,141 +72,174 @@ func getSignedPropWithCHIdAndArgs(chid, ccid, ccver string, ccargs [][]byte, t *
 	return &pb.SignedProposal{ProposalBytes: propBytes, Signature: signature}
 }
 
-func TestEndorserNilProp(t *testing.T) {
-	es := NewEndorserServer(func(channel string, txID string, privateData *rwset.TxPvtReadWriteSet) error {
-		return nil
-	}, &em.MockSupport{
-		GetApplicationConfigBoolRv: true,
-		GetApplicationConfigRv:     &mc.MockApplication{&mc.MockApplicationCapabilities{}},
-		GetTransactionByIDErr:      errors.New(""),
-		ChaincodeDefinitionRv:      &resourceconfig.MockChaincodeDefinition{EndorsementStr: "ESCC"},
-		ExecuteResp:                &pb.Response{Status: 200, Payload: utils.MarshalOrPanic(&pb.ProposalResponse{Response: &pb.Response{}})},
-		GetTxSimulatorRv:           &ccprovider.MockTxSim{&ledger.TxSimulationResults{PubSimulationResults: &rwset.TxReadWriteSet{}}},
-	})
+func newMockTxSim() *mockccprovider.MockTxSim {
+	return &mockccprovider.MockTxSim{
+		GetTxSimulationResultsRv: &ledger.TxSimulationResults{
+			PubSimulationResults: &rwset.TxReadWriteSet{},
+		},
+	}
+}
 
-	_, err := es.ProcessProposal(context.Background(), nil)
+func TestEndorserNilProp(t *testing.T) {
+	es := endorser.NewEndorserServer(pvtEmptyDistributor, &em.MockSupport{
+		GetApplicationConfigBoolRv: true,
+		GetApplicationConfigRv:     &mc.MockApplication{CapabilitiesRv: &mc.MockApplicationCapabilities{}},
+		GetTransactionByIDErr:      errors.New(""),
+		ChaincodeDefinitionRv:      &ccprovider.ChaincodeData{Escc: "ESCC"},
+		ExecuteResp:                &pb.Response{Status: 200, Payload: utils.MarshalOrPanic(&pb.ProposalResponse{Response: &pb.Response{}})},
+		GetTxSimulatorRv: &mockccprovider.MockTxSim{
+			GetTxSimulationResultsRv: &ledger.TxSimulationResults{
+				PubSimulationResults: &rwset.TxReadWriteSet{},
+			},
+		},
+	}, platforms.NewRegistry(&golang.Platform{}))
+
+	pResp, err := es.ProcessProposal(context.Background(), nil)
 	assert.Error(t, err)
+	assert.EqualValues(t, 500, pResp.Response.Status)
+	assert.Equal(t, "nil arguments", pResp.Response.Message)
 }
 
 func TestEndorserUninvokableSysCC(t *testing.T) {
-	es := NewEndorserServer(func(channel string, txID string, privateData *rwset.TxPvtReadWriteSet) error {
-		return nil
-	}, &em.MockSupport{
+	es := endorser.NewEndorserServer(pvtEmptyDistributor, &em.MockSupport{
 		GetApplicationConfigBoolRv:       true,
-		GetApplicationConfigRv:           &mc.MockApplication{&mc.MockApplicationCapabilities{}},
+		GetApplicationConfigRv:           &mc.MockApplication{CapabilitiesRv: &mc.MockApplicationCapabilities{}},
 		GetTransactionByIDErr:            errors.New(""),
 		IsSysCCAndNotInvokableExternalRv: true,
-	})
+	}, platforms.NewRegistry(&golang.Platform{}))
 
 	signedProp := getSignedProp("ccid", "0", t)
 
-	_, err := es.ProcessProposal(context.Background(), signedProp)
+	pResp, err := es.ProcessProposal(context.Background(), signedProp)
 	assert.Error(t, err)
+	assert.EqualValues(t, 500, pResp.Response.Status)
+	assert.Equal(t, "chaincode ccid cannot be invoked through a proposal", pResp.Response.Message)
 }
 
 func TestEndorserCCInvocationFailed(t *testing.T) {
-	es := NewEndorserServer(func(channel string, txID string, privateData *rwset.TxPvtReadWriteSet) error {
-		return nil
-	}, &em.MockSupport{
+	es := endorser.NewEndorserServer(pvtEmptyDistributor, &em.MockSupport{
 		GetApplicationConfigBoolRv: true,
-		GetApplicationConfigRv:     &mc.MockApplication{&mc.MockApplicationCapabilities{}},
+		GetApplicationConfigRv:     &mc.MockApplication{CapabilitiesRv: &mc.MockApplicationCapabilities{}},
 		GetTransactionByIDErr:      errors.New(""),
-		ChaincodeDefinitionRv:      &resourceconfig.MockChaincodeDefinition{EndorsementStr: "ESCC"},
-		ExecuteResp:                &pb.Response{Status: 1000, Payload: utils.MarshalOrPanic(&pb.ProposalResponse{Response: &pb.Response{}})},
-		GetTxSimulatorRv:           &ccprovider.MockTxSim{&ledger.TxSimulationResults{PubSimulationResults: &rwset.TxReadWriteSet{}}},
-	})
+		ChaincodeDefinitionRv:      &ccprovider.ChaincodeData{Escc: "ESCC"},
+		ExecuteResp:                &pb.Response{Status: 1000, Payload: utils.MarshalOrPanic(&pb.ProposalResponse{Response: &pb.Response{}}), Message: "Chaincode Error"},
+		GetTxSimulatorRv: &mockccprovider.MockTxSim{
+			GetTxSimulationResultsRv: &ledger.TxSimulationResults{
+				PubSimulationResults: &rwset.TxReadWriteSet{},
+			},
+		},
+	}, platforms.NewRegistry(&golang.Platform{}))
 
 	signedProp := getSignedProp("ccid", "0", t)
 
-	_, err := es.ProcessProposal(context.Background(), signedProp)
-	assert.Error(t, err)
+	pResp, err := es.ProcessProposal(context.Background(), signedProp)
+	assert.NoError(t, err)
+	assert.EqualValues(t, 1000, pResp.Response.Status)
+	assert.Regexp(t, "Chaincode Error", pResp.Response.Message)
 }
 
 func TestEndorserNoCCDef(t *testing.T) {
-	es := NewEndorserServer(func(channel string, txID string, privateData *rwset.TxPvtReadWriteSet) error {
-		return nil
-	}, &em.MockSupport{
+	es := endorser.NewEndorserServer(pvtEmptyDistributor, &em.MockSupport{
 		GetApplicationConfigBoolRv: true,
-		GetApplicationConfigRv:     &mc.MockApplication{&mc.MockApplicationCapabilities{}},
+		GetApplicationConfigRv:     &mc.MockApplication{CapabilitiesRv: &mc.MockApplicationCapabilities{}},
 		GetTransactionByIDErr:      errors.New(""),
 		ChaincodeDefinitionError:   errors.New(""),
 		ExecuteResp:                &pb.Response{Status: 200, Payload: utils.MarshalOrPanic(&pb.ProposalResponse{Response: &pb.Response{}})},
-		GetTxSimulatorRv:           &ccprovider.MockTxSim{&ledger.TxSimulationResults{PubSimulationResults: &rwset.TxReadWriteSet{}}},
-	})
+		GetTxSimulatorRv: &mockccprovider.MockTxSim{
+			GetTxSimulationResultsRv: &ledger.TxSimulationResults{
+				PubSimulationResults: &rwset.TxReadWriteSet{},
+			},
+		},
+	}, platforms.NewRegistry(&golang.Platform{}))
 
 	signedProp := getSignedProp("ccid", "0", t)
 
-	_, err := es.ProcessProposal(context.Background(), signedProp)
-	assert.Error(t, err)
+	pResp, err := es.ProcessProposal(context.Background(), signedProp)
+	assert.NoError(t, err)
+	assert.EqualValues(t, 500, pResp.Response.Status)
+	assert.Regexp(t, "make sure the chaincode", pResp.Response.Message)
 }
 
 func TestEndorserBadInstPolicy(t *testing.T) {
-	es := NewEndorserServer(func(channel string, txID string, privateData *rwset.TxPvtReadWriteSet) error {
-		return nil
-	}, &em.MockSupport{
+	es := endorser.NewEndorserServer(pvtEmptyDistributor, &em.MockSupport{
 		GetApplicationConfigBoolRv:    true,
-		GetApplicationConfigRv:        &mc.MockApplication{&mc.MockApplicationCapabilities{}},
+		GetApplicationConfigRv:        &mc.MockApplication{CapabilitiesRv: &mc.MockApplicationCapabilities{}},
 		GetTransactionByIDErr:         errors.New(""),
 		CheckInstantiationPolicyError: errors.New(""),
-		ChaincodeDefinitionRv:         &resourceconfig.MockChaincodeDefinition{EndorsementStr: "ESCC"},
+		ChaincodeDefinitionRv:         &ccprovider.ChaincodeData{Escc: "ESCC"},
 		ExecuteResp:                   &pb.Response{Status: 200, Payload: utils.MarshalOrPanic(&pb.ProposalResponse{Response: &pb.Response{}})},
-		GetTxSimulatorRv:              &ccprovider.MockTxSim{&ledger.TxSimulationResults{PubSimulationResults: &rwset.TxReadWriteSet{}}},
-	})
+		GetTxSimulatorRv: &mockccprovider.MockTxSim{
+			GetTxSimulationResultsRv: &ledger.TxSimulationResults{
+				PubSimulationResults: &rwset.TxReadWriteSet{},
+			},
+		},
+	}, platforms.NewRegistry(&golang.Platform{}))
 
 	signedProp := getSignedProp("ccid", "0", t)
 
-	_, err := es.ProcessProposal(context.Background(), signedProp)
-	assert.Error(t, err)
+	pResp, err := es.ProcessProposal(context.Background(), signedProp)
+	assert.NoError(t, err)
+	assert.EqualValues(t, 500, pResp.Response.Status)
 }
 
 func TestEndorserSysCC(t *testing.T) {
-	es := NewEndorserServer(func(channel string, txID string, privateData *rwset.TxPvtReadWriteSet) error {
-		return nil
-	}, &em.MockSupport{
+	m := &mock.Mock{}
+	m.On("Sign", mock.Anything).Return([]byte{1, 2, 3, 4, 5}, nil)
+	m.On("Serialize").Return([]byte{1, 1, 1}, nil)
+	m.On("GetTxSimulator", mock.Anything, mock.Anything).Return(newMockTxSim(), nil)
+	support := &em.MockSupport{
+		Mock: m,
 		GetApplicationConfigBoolRv: true,
-		GetApplicationConfigRv:     &mc.MockApplication{&mc.MockApplicationCapabilities{}},
+		GetApplicationConfigRv:     &mc.MockApplication{CapabilitiesRv: &mc.MockApplicationCapabilities{}},
 		GetTransactionByIDErr:      errors.New(""),
 		IsSysCCRv:                  true,
-		ChaincodeDefinitionRv:      &resourceconfig.MockChaincodeDefinition{EndorsementStr: "ESCC"},
+		ChaincodeDefinitionRv:      &ccprovider.ChaincodeData{Escc: "ESCC"},
 		ExecuteResp:                &pb.Response{Status: 200, Payload: utils.MarshalOrPanic(&pb.ProposalResponse{Response: &pb.Response{}})},
-		GetTxSimulatorRv:           &ccprovider.MockTxSim{&ledger.TxSimulationResults{PubSimulationResults: &rwset.TxReadWriteSet{}}},
-	})
+	}
+	attachPluginEndorser(support)
+	es := endorser.NewEndorserServer(pvtEmptyDistributor, support, platforms.NewRegistry(&golang.Platform{}))
 
 	signedProp := getSignedProp("ccid", "0", t)
 
-	_, err := es.ProcessProposal(context.Background(), signedProp)
+	pResp, err := es.ProcessProposal(context.Background(), signedProp)
 	assert.NoError(t, err)
+	assert.EqualValues(t, 200, pResp.Response.Status)
 }
 
 func TestEndorserCCInvocationError(t *testing.T) {
-	es := NewEndorserServer(func(channel string, txID string, privateData *rwset.TxPvtReadWriteSet) error {
-		return nil
-	}, &em.MockSupport{
+	es := endorser.NewEndorserServer(pvtEmptyDistributor, &em.MockSupport{
 		GetApplicationConfigBoolRv: true,
-		GetApplicationConfigRv:     &mc.MockApplication{&mc.MockApplicationCapabilities{}},
+		GetApplicationConfigRv:     &mc.MockApplication{CapabilitiesRv: &mc.MockApplicationCapabilities{}},
 		GetTransactionByIDErr:      errors.New(""),
 		ExecuteError:               errors.New(""),
-		ChaincodeDefinitionRv:      &resourceconfig.MockChaincodeDefinition{EndorsementStr: "ESCC"},
-		GetTxSimulatorRv:           &ccprovider.MockTxSim{&ledger.TxSimulationResults{PubSimulationResults: &rwset.TxReadWriteSet{}}},
-	})
+		ChaincodeDefinitionRv:      &ccprovider.ChaincodeData{Escc: "ESCC"},
+		GetTxSimulatorRv: &mockccprovider.MockTxSim{
+			GetTxSimulationResultsRv: &ledger.TxSimulationResults{
+				PubSimulationResults: &rwset.TxReadWriteSet{},
+			},
+		},
+	}, platforms.NewRegistry(&golang.Platform{}))
 
 	signedProp := getSignedProp("ccid", "0", t)
 
-	_, err := es.ProcessProposal(context.Background(), signedProp)
-	assert.Error(t, err)
+	pResp, err := es.ProcessProposal(context.Background(), signedProp)
+	assert.NoError(t, err)
+	assert.EqualValues(t, 500, pResp.Response.Status)
 }
 
 func TestEndorserLSCCBadType(t *testing.T) {
-	es := NewEndorserServer(func(channel string, txID string, privateData *rwset.TxPvtReadWriteSet) error {
-		return nil
-	}, &em.MockSupport{
+	es := endorser.NewEndorserServer(pvtEmptyDistributor, &em.MockSupport{
 		GetApplicationConfigBoolRv: true,
-		GetApplicationConfigRv:     &mc.MockApplication{&mc.MockApplicationCapabilities{}},
+		GetApplicationConfigRv:     &mc.MockApplication{CapabilitiesRv: &mc.MockApplicationCapabilities{}},
 		GetTransactionByIDErr:      errors.New(""),
-		ChaincodeDefinitionRv:      &resourceconfig.MockChaincodeDefinition{EndorsementStr: "ESCC"},
+		ChaincodeDefinitionRv:      &ccprovider.ChaincodeData{Escc: "ESCC"},
 		ExecuteResp:                &pb.Response{Status: 200, Payload: utils.MarshalOrPanic(&pb.ProposalResponse{Response: &pb.Response{}})},
-		GetTxSimulatorRv:           &ccprovider.MockTxSim{&ledger.TxSimulationResults{PubSimulationResults: &rwset.TxReadWriteSet{}}},
-	})
+		GetTxSimulatorRv: &mockccprovider.MockTxSim{
+			GetTxSimulationResultsRv: &ledger.TxSimulationResults{
+				PubSimulationResults: &rwset.TxReadWriteSet{},
+			},
+		},
+	}, platforms.NewRegistry(&golang.Platform{}))
 
 	cds := utils.MarshalOrPanic(
 		&pb.ChaincodeDeploymentSpec{
@@ -204,76 +251,90 @@ func TestEndorserLSCCBadType(t *testing.T) {
 	)
 	signedProp := getSignedPropWithCHIdAndArgs(util.GetTestChainID(), "lscc", "0", [][]byte{[]byte("deploy"), []byte("a"), cds}, t)
 
-	_, err := es.ProcessProposal(context.Background(), signedProp)
-	assert.Error(t, err)
+	pResp, err := es.ProcessProposal(context.Background(), signedProp)
+	assert.NoError(t, err)
+	assert.EqualValues(t, 500, pResp.Response.Status)
+	assert.Equal(t, "Unknown chaincodeType: UNDEFINED", pResp.Response.Message)
 }
 
 func TestEndorserDupTXId(t *testing.T) {
-	es := NewEndorserServer(func(channel string, txID string, privateData *rwset.TxPvtReadWriteSet) error {
-		return nil
-	}, &em.MockSupport{
+	es := endorser.NewEndorserServer(pvtEmptyDistributor, &em.MockSupport{
 		GetApplicationConfigBoolRv: true,
-		GetApplicationConfigRv:     &mc.MockApplication{&mc.MockApplicationCapabilities{}},
-		ChaincodeDefinitionRv:      &resourceconfig.MockChaincodeDefinition{EndorsementStr: "ESCC"},
+		GetApplicationConfigRv:     &mc.MockApplication{CapabilitiesRv: &mc.MockApplicationCapabilities{}},
+		ChaincodeDefinitionRv:      &ccprovider.ChaincodeData{Escc: "ESCC"},
 		ExecuteResp:                &pb.Response{Status: 200, Payload: utils.MarshalOrPanic(&pb.ProposalResponse{Response: &pb.Response{}})},
-		GetTxSimulatorRv:           &ccprovider.MockTxSim{&ledger.TxSimulationResults{PubSimulationResults: &rwset.TxReadWriteSet{}}},
-	})
+		GetTxSimulatorRv: &mockccprovider.MockTxSim{
+			GetTxSimulationResultsRv: &ledger.TxSimulationResults{
+				PubSimulationResults: &rwset.TxReadWriteSet{},
+			},
+		},
+	}, platforms.NewRegistry(&golang.Platform{}))
 
 	signedProp := getSignedProp("ccid", "0", t)
 
-	_, err := es.ProcessProposal(context.Background(), signedProp)
+	pResp, err := es.ProcessProposal(context.Background(), signedProp)
 	assert.Error(t, err)
+	assert.EqualValues(t, 500, pResp.Response.Status)
+	assert.Regexp(t, "duplicate transaction found", pResp.Response.Message)
 }
 
 func TestEndorserBadACL(t *testing.T) {
-	es := NewEndorserServer(func(channel string, txID string, privateData *rwset.TxPvtReadWriteSet) error {
-		return nil
-	}, &em.MockSupport{
+	es := endorser.NewEndorserServer(pvtEmptyDistributor, &em.MockSupport{
 		GetApplicationConfigBoolRv: true,
-		GetApplicationConfigRv:     &mc.MockApplication{&mc.MockApplicationCapabilities{}},
+		GetApplicationConfigRv:     &mc.MockApplication{CapabilitiesRv: &mc.MockApplicationCapabilities{}},
 		CheckACLErr:                errors.New(""),
 		GetTransactionByIDErr:      errors.New(""),
-		ChaincodeDefinitionRv:      &resourceconfig.MockChaincodeDefinition{EndorsementStr: "ESCC"},
+		ChaincodeDefinitionRv:      &ccprovider.ChaincodeData{Escc: "ESCC"},
 		ExecuteResp:                &pb.Response{Status: 200, Payload: utils.MarshalOrPanic(&pb.ProposalResponse{Response: &pb.Response{}})},
-		GetTxSimulatorRv:           &ccprovider.MockTxSim{&ledger.TxSimulationResults{PubSimulationResults: &rwset.TxReadWriteSet{}}},
-	})
+		GetTxSimulatorRv: &mockccprovider.MockTxSim{
+			GetTxSimulationResultsRv: &ledger.TxSimulationResults{
+				PubSimulationResults: &rwset.TxReadWriteSet{},
+			},
+		},
+	}, platforms.NewRegistry(&golang.Platform{}))
 
 	signedProp := getSignedProp("ccid", "0", t)
 
-	_, err := es.ProcessProposal(context.Background(), signedProp)
+	pResp, err := es.ProcessProposal(context.Background(), signedProp)
 	assert.Error(t, err)
+	assert.EqualValues(t, 500, pResp.Response.Status)
 }
 
 func TestEndorserGoodPathEmptyChannel(t *testing.T) {
-	es := NewEndorserServer(func(channel string, txID string, privateData *rwset.TxPvtReadWriteSet) error {
-		return nil
-	}, &em.MockSupport{
+	es := endorser.NewEndorserServer(pvtEmptyDistributor, &em.MockSupport{
 		GetApplicationConfigBoolRv: true,
-		GetApplicationConfigRv:     &mc.MockApplication{&mc.MockApplicationCapabilities{}},
+		GetApplicationConfigRv:     &mc.MockApplication{CapabilitiesRv: &mc.MockApplicationCapabilities{}},
 		GetTransactionByIDErr:      errors.New(""),
-		ChaincodeDefinitionRv:      &resourceconfig.MockChaincodeDefinition{EndorsementStr: "ESCC"},
+		ChaincodeDefinitionRv:      &ccprovider.ChaincodeData{Escc: "ESCC"},
 		ExecuteResp:                &pb.Response{Status: 200, Payload: utils.MarshalOrPanic(&pb.ProposalResponse{Response: &pb.Response{}})},
-		GetTxSimulatorRv:           &ccprovider.MockTxSim{&ledger.TxSimulationResults{PubSimulationResults: &rwset.TxReadWriteSet{}}},
-	})
+		GetTxSimulatorRv: &mockccprovider.MockTxSim{
+			GetTxSimulationResultsRv: &ledger.TxSimulationResults{
+				PubSimulationResults: &rwset.TxReadWriteSet{},
+			},
+		},
+	}, platforms.NewRegistry(&golang.Platform{}))
 
 	signedProp := getSignedPropWithCHIdAndArgs("", "ccid", "0", [][]byte{[]byte("args")}, t)
 
-	_, err := es.ProcessProposal(context.Background(), signedProp)
+	pResp, err := es.ProcessProposal(context.Background(), signedProp)
 	assert.NoError(t, err)
+	assert.EqualValues(t, 200, pResp.Response.Status)
 }
 
 func TestEndorserLSCCInitFails(t *testing.T) {
-	es := NewEndorserServer(func(channel string, txID string, privateData *rwset.TxPvtReadWriteSet) error {
-		return nil
-	}, &em.MockSupport{
+	es := endorser.NewEndorserServer(pvtEmptyDistributor, &em.MockSupport{
 		GetApplicationConfigBoolRv: true,
-		GetApplicationConfigRv:     &mc.MockApplication{&mc.MockApplicationCapabilities{}},
+		GetApplicationConfigRv:     &mc.MockApplication{CapabilitiesRv: &mc.MockApplicationCapabilities{}},
 		GetTransactionByIDErr:      errors.New(""),
-		ChaincodeDefinitionRv:      &resourceconfig.MockChaincodeDefinition{EndorsementStr: "ESCC"},
+		ChaincodeDefinitionRv:      &ccprovider.ChaincodeData{Escc: "ESCC"},
 		ExecuteResp:                &pb.Response{Status: 200, Payload: utils.MarshalOrPanic(&pb.ProposalResponse{Response: &pb.Response{}})},
-		GetTxSimulatorRv:           &ccprovider.MockTxSim{&ledger.TxSimulationResults{PubSimulationResults: &rwset.TxReadWriteSet{}}},
-		ExecuteCDSError:            errors.New(""),
-	})
+		GetTxSimulatorRv: &mockccprovider.MockTxSim{
+			GetTxSimulationResultsRv: &ledger.TxSimulationResults{
+				PubSimulationResults: &rwset.TxReadWriteSet{},
+			},
+		},
+		ExecuteCDSError: errors.New(""),
+	}, platforms.NewRegistry(&golang.Platform{}))
 
 	cds := utils.MarshalOrPanic(
 		&pb.ChaincodeDeploymentSpec{
@@ -285,25 +346,28 @@ func TestEndorserLSCCInitFails(t *testing.T) {
 	)
 	signedProp := getSignedPropWithCHIdAndArgs(util.GetTestChainID(), "lscc", "0", [][]byte{[]byte("deploy"), []byte("a"), cds}, t)
 
-	_, err := es.ProcessProposal(context.Background(), signedProp)
-	assert.Error(t, err)
+	pResp, err := es.ProcessProposal(context.Background(), signedProp)
+	assert.NoError(t, err)
+	assert.EqualValues(t, 500, pResp.Response.Status)
 }
 
 func TestEndorserLSCCDeploySysCC(t *testing.T) {
 	SysCCMap := make(map[string]struct{})
 	deployedCCName := "barf"
 	SysCCMap[deployedCCName] = struct{}{}
-	es := NewEndorserServer(func(channel string, txID string, privateData *rwset.TxPvtReadWriteSet) error {
-		return nil
-	}, &em.MockSupport{
+	es := endorser.NewEndorserServer(pvtEmptyDistributor, &em.MockSupport{
 		GetApplicationConfigBoolRv: true,
-		GetApplicationConfigRv:     &mc.MockApplication{&mc.MockApplicationCapabilities{}},
+		GetApplicationConfigRv:     &mc.MockApplication{CapabilitiesRv: &mc.MockApplicationCapabilities{}},
 		GetTransactionByIDErr:      errors.New(""),
-		ChaincodeDefinitionRv:      &resourceconfig.MockChaincodeDefinition{EndorsementStr: "ESCC"},
+		ChaincodeDefinitionRv:      &ccprovider.ChaincodeData{Escc: "ESCC"},
 		ExecuteResp:                &pb.Response{Status: 200, Payload: utils.MarshalOrPanic(&pb.ProposalResponse{Response: &pb.Response{}})},
-		GetTxSimulatorRv:           &ccprovider.MockTxSim{&ledger.TxSimulationResults{PubSimulationResults: &rwset.TxReadWriteSet{}}},
-		SysCCMap:                   SysCCMap,
-	})
+		GetTxSimulatorRv: &mockccprovider.MockTxSim{
+			GetTxSimulationResultsRv: &ledger.TxSimulationResults{
+				PubSimulationResults: &rwset.TxReadWriteSet{},
+			},
+		},
+		SysCCMap: SysCCMap,
+	}, platforms.NewRegistry(&golang.Platform{}))
 
 	cds := utils.MarshalOrPanic(
 		&pb.ChaincodeDeploymentSpec{
@@ -315,26 +379,30 @@ func TestEndorserLSCCDeploySysCC(t *testing.T) {
 	)
 	signedProp := getSignedPropWithCHIdAndArgs(util.GetTestChainID(), "lscc", "0", [][]byte{[]byte("deploy"), []byte("a"), cds}, t)
 
-	_, err := es.ProcessProposal(context.Background(), signedProp)
-	assert.Error(t, err)
+	pResp, err := es.ProcessProposal(context.Background(), signedProp)
+	assert.NoError(t, err)
+	assert.EqualValues(t, 500, pResp.Response.Status)
+	assert.Equal(t, "attempting to deploy a system chaincode barf/testchainid", pResp.Response.Message)
 }
 
 func TestEndorserLSCCJava1(t *testing.T) {
-	if javaEnabled() {
+	if endorser.JavaEnabled() {
 		t.Skip("Java chaincode is supported")
 	}
 
-	es := NewEndorserServer(func(channel string, txID string, privateData *rwset.TxPvtReadWriteSet) error {
-		return nil
-	}, &em.MockSupport{
+	es := endorser.NewEndorserServer(pvtEmptyDistributor, &em.MockSupport{
 		GetApplicationConfigBoolRv: true,
-		GetApplicationConfigRv:     &mc.MockApplication{&mc.MockApplicationCapabilities{}},
+		GetApplicationConfigRv:     &mc.MockApplication{CapabilitiesRv: &mc.MockApplicationCapabilities{}},
 		IsJavaRV:                   true,
 		GetTransactionByIDErr:      errors.New(""),
-		ChaincodeDefinitionRv:      &resourceconfig.MockChaincodeDefinition{EndorsementStr: "ESCC"},
+		ChaincodeDefinitionRv:      &ccprovider.ChaincodeData{Escc: "ESCC"},
 		ExecuteResp:                &pb.Response{Status: 200, Payload: utils.MarshalOrPanic(&pb.ProposalResponse{Response: &pb.Response{}})},
-		GetTxSimulatorRv:           &ccprovider.MockTxSim{&ledger.TxSimulationResults{PubSimulationResults: &rwset.TxReadWriteSet{}}},
-	})
+		GetTxSimulatorRv: &mockccprovider.MockTxSim{
+			GetTxSimulationResultsRv: &ledger.TxSimulationResults{
+				PubSimulationResults: &rwset.TxReadWriteSet{},
+			},
+		},
+	}, platforms.NewRegistry(&golang.Platform{}))
 
 	cds := utils.MarshalOrPanic(
 		&pb.ChaincodeDeploymentSpec{
@@ -346,26 +414,30 @@ func TestEndorserLSCCJava1(t *testing.T) {
 	)
 	signedProp := getSignedPropWithCHIdAndArgs(util.GetTestChainID(), "lscc", "0", [][]byte{[]byte("deploy"), []byte("a"), cds}, t)
 
-	_, err := es.ProcessProposal(context.Background(), signedProp)
-	assert.Error(t, err)
+	pResp, err := es.ProcessProposal(context.Background(), signedProp)
+	assert.NoError(t, err)
+	assert.EqualValues(t, 500, pResp.Response.Status)
+	assert.Equal(t, "Java chaincode is work-in-progress and disabled", pResp.Response.Message)
 }
 
 func TestEndorserLSCCJava2(t *testing.T) {
-	if javaEnabled() {
+	if endorser.JavaEnabled() {
 		t.Skip("Java chaincode is supported")
 	}
 
-	es := NewEndorserServer(func(channel string, txID string, privateData *rwset.TxPvtReadWriteSet) error {
-		return nil
-	}, &em.MockSupport{
+	es := endorser.NewEndorserServer(pvtEmptyDistributor, &em.MockSupport{
 		GetApplicationConfigBoolRv: true,
-		GetApplicationConfigRv:     &mc.MockApplication{&mc.MockApplicationCapabilities{}},
+		GetApplicationConfigRv:     &mc.MockApplication{CapabilitiesRv: &mc.MockApplicationCapabilities{}},
 		IsJavaErr:                  errors.New(""),
 		GetTransactionByIDErr:      errors.New(""),
-		ChaincodeDefinitionRv:      &resourceconfig.MockChaincodeDefinition{EndorsementStr: "ESCC"},
+		ChaincodeDefinitionRv:      &ccprovider.ChaincodeData{Escc: "ESCC"},
 		ExecuteResp:                &pb.Response{Status: 200, Payload: utils.MarshalOrPanic(&pb.ProposalResponse{Response: &pb.Response{}})},
-		GetTxSimulatorRv:           &ccprovider.MockTxSim{&ledger.TxSimulationResults{PubSimulationResults: &rwset.TxReadWriteSet{}}},
-	})
+		GetTxSimulatorRv: &mockccprovider.MockTxSim{
+			GetTxSimulationResultsRv: &ledger.TxSimulationResults{
+				PubSimulationResults: &rwset.TxReadWriteSet{},
+			},
+		},
+	}, platforms.NewRegistry(&golang.Platform{}))
 
 	cds := utils.MarshalOrPanic(
 		&pb.ChaincodeDeploymentSpec{
@@ -377,76 +449,95 @@ func TestEndorserLSCCJava2(t *testing.T) {
 	)
 	signedProp := getSignedPropWithCHIdAndArgs(util.GetTestChainID(), "lscc", "0", [][]byte{[]byte("deploy"), []byte("a"), cds}, t)
 
-	_, err := es.ProcessProposal(context.Background(), signedProp)
-	assert.Error(t, err)
+	pResp, err := es.ProcessProposal(context.Background(), signedProp)
+	assert.NoError(t, err)
+	assert.EqualValues(t, 500, pResp.Response.Status)
 }
 
 func TestEndorserGoodPathWEvents(t *testing.T) {
-	es := NewEndorserServer(func(channel string, txID string, privateData *rwset.TxPvtReadWriteSet) error {
-		return nil
-	}, &em.MockSupport{
+	m := &mock.Mock{}
+	m.On("Sign", mock.Anything).Return([]byte{1, 2, 3, 4, 5}, nil)
+	m.On("Serialize").Return([]byte{1, 1, 1}, nil)
+	m.On("GetTxSimulator", mock.Anything, mock.Anything).Return(newMockTxSim(), nil)
+	support := &em.MockSupport{
+		Mock: m,
 		GetApplicationConfigBoolRv: true,
-		GetApplicationConfigRv:     &mc.MockApplication{&mc.MockApplicationCapabilities{}},
+		GetApplicationConfigRv:     &mc.MockApplication{CapabilitiesRv: &mc.MockApplicationCapabilities{}},
 		GetTransactionByIDErr:      errors.New(""),
-		ChaincodeDefinitionRv:      &resourceconfig.MockChaincodeDefinition{EndorsementStr: "ESCC"},
+		ChaincodeDefinitionRv:      &ccprovider.ChaincodeData{Escc: "ESCC"},
 		ExecuteResp:                &pb.Response{Status: 200, Payload: utils.MarshalOrPanic(&pb.ProposalResponse{Response: &pb.Response{}})},
 		ExecuteEvent:               &pb.ChaincodeEvent{},
-		GetTxSimulatorRv:           &ccprovider.MockTxSim{&ledger.TxSimulationResults{PubSimulationResults: &rwset.TxReadWriteSet{}}},
-	})
+	}
+	attachPluginEndorser(support)
+	es := endorser.NewEndorserServer(pvtEmptyDistributor, support, platforms.NewRegistry(&golang.Platform{}))
 
 	signedProp := getSignedProp("ccid", "0", t)
 
-	_, err := es.ProcessProposal(context.Background(), signedProp)
+	pResp, err := es.ProcessProposal(context.Background(), signedProp)
 	assert.NoError(t, err)
+	assert.EqualValues(t, 200, pResp.Response.Status)
 }
 
 func TestEndorserBadChannel(t *testing.T) {
-	es := NewEndorserServer(func(channel string, txID string, privateData *rwset.TxPvtReadWriteSet) error {
-		return nil
-	}, &em.MockSupport{
+	es := endorser.NewEndorserServer(pvtEmptyDistributor, &em.MockSupport{
 		GetApplicationConfigBoolRv: true,
-		GetApplicationConfigRv:     &mc.MockApplication{&mc.MockApplicationCapabilities{}},
+		GetApplicationConfigRv:     &mc.MockApplication{CapabilitiesRv: &mc.MockApplicationCapabilities{}},
 		GetTransactionByIDErr:      errors.New(""),
-		ChaincodeDefinitionRv:      &resourceconfig.MockChaincodeDefinition{EndorsementStr: "ESCC"},
+		ChaincodeDefinitionRv:      &ccprovider.ChaincodeData{Escc: "ESCC"},
 		ExecuteResp:                &pb.Response{Status: 200, Payload: utils.MarshalOrPanic(&pb.ProposalResponse{Response: &pb.Response{}})},
-		GetTxSimulatorRv:           &ccprovider.MockTxSim{&ledger.TxSimulationResults{PubSimulationResults: &rwset.TxReadWriteSet{}}},
-	})
+		GetTxSimulatorRv: &mockccprovider.MockTxSim{
+			GetTxSimulationResultsRv: &ledger.TxSimulationResults{
+				PubSimulationResults: &rwset.TxReadWriteSet{},
+			},
+		},
+	}, platforms.NewRegistry(&golang.Platform{}))
 
 	signedProp := getSignedPropWithCHID("ccid", "0", "barfchain", t)
 
-	_, err := es.ProcessProposal(context.Background(), signedProp)
+	pResp, err := es.ProcessProposal(context.Background(), signedProp)
 	assert.Error(t, err)
+	assert.EqualValues(t, 500, pResp.Response.Status)
+	assert.Equal(t, "access denied: channel [barfchain] creator org [SampleOrg]", pResp.Response.Message)
 }
 
 func TestEndorserGoodPath(t *testing.T) {
-	es := NewEndorserServer(func(channel string, txID string, privateData *rwset.TxPvtReadWriteSet) error {
-		return nil
-	}, &em.MockSupport{
+	m := &mock.Mock{}
+	m.On("Sign", mock.Anything).Return([]byte{1, 2, 3, 4, 5}, nil)
+	m.On("Serialize").Return([]byte{1, 1, 1}, nil)
+	m.On("GetTxSimulator", mock.Anything, mock.Anything).Return(newMockTxSim(), nil)
+	support := &em.MockSupport{
+		Mock: m,
 		GetApplicationConfigBoolRv: true,
-		GetApplicationConfigRv:     &mc.MockApplication{&mc.MockApplicationCapabilities{}},
+		GetApplicationConfigRv:     &mc.MockApplication{CapabilitiesRv: &mc.MockApplicationCapabilities{}},
 		GetTransactionByIDErr:      errors.New(""),
-		ChaincodeDefinitionRv:      &resourceconfig.MockChaincodeDefinition{EndorsementStr: "ESCC"},
+		ChaincodeDefinitionRv:      &ccprovider.ChaincodeData{Escc: "ESCC"},
 		ExecuteResp:                &pb.Response{Status: 200, Payload: utils.MarshalOrPanic(&pb.ProposalResponse{Response: &pb.Response{}})},
-		GetTxSimulatorRv:           &ccprovider.MockTxSim{&ledger.TxSimulationResults{PubSimulationResults: &rwset.TxReadWriteSet{}}},
-	})
+	}
+	attachPluginEndorser(support)
+	es := endorser.NewEndorserServer(pvtEmptyDistributor, support, platforms.NewRegistry(&golang.Platform{}))
 
 	signedProp := getSignedProp("ccid", "0", t)
 
-	_, err := es.ProcessProposal(context.Background(), signedProp)
+	pResp, err := es.ProcessProposal(context.Background(), signedProp)
 	assert.NoError(t, err)
+	assert.EqualValues(t, 200, pResp.Response.Status)
 }
 
 func TestEndorserLSCC(t *testing.T) {
-	es := NewEndorserServer(func(channel string, txID string, privateData *rwset.TxPvtReadWriteSet) error {
-		return nil
-	}, &em.MockSupport{
+	m := &mock.Mock{}
+	m.On("Sign", mock.Anything).Return([]byte{1, 2, 3, 4, 5}, nil)
+	m.On("Serialize").Return([]byte{1, 1, 1}, nil)
+	m.On("GetTxSimulator", mock.Anything, mock.Anything).Return(newMockTxSim(), nil)
+	support := &em.MockSupport{
+		Mock: m,
 		GetApplicationConfigBoolRv: true,
-		GetApplicationConfigRv:     &mc.MockApplication{&mc.MockApplicationCapabilities{}},
+		GetApplicationConfigRv:     &mc.MockApplication{CapabilitiesRv: &mc.MockApplicationCapabilities{}},
 		GetTransactionByIDErr:      errors.New(""),
-		ChaincodeDefinitionRv:      &resourceconfig.MockChaincodeDefinition{EndorsementStr: "ESCC"},
+		ChaincodeDefinitionRv:      &ccprovider.ChaincodeData{Escc: "ESCC"},
 		ExecuteResp:                &pb.Response{Status: 200, Payload: utils.MarshalOrPanic(&pb.ProposalResponse{Response: &pb.Response{}})},
-		GetTxSimulatorRv:           &ccprovider.MockTxSim{&ledger.TxSimulationResults{PubSimulationResults: &rwset.TxReadWriteSet{}}},
-	})
+	}
+	attachPluginEndorser(support)
+	es := endorser.NewEndorserServer(pvtEmptyDistributor, support, platforms.NewRegistry(&golang.Platform{}))
 
 	cds := utils.MarshalOrPanic(
 		&pb.ChaincodeDeploymentSpec{
@@ -458,55 +549,150 @@ func TestEndorserLSCC(t *testing.T) {
 	)
 	signedProp := getSignedPropWithCHIdAndArgs(util.GetTestChainID(), "lscc", "0", [][]byte{[]byte("deploy"), []byte("a"), cds}, t)
 
-	_, err := es.ProcessProposal(context.Background(), signedProp)
+	pResp, err := es.ProcessProposal(context.Background(), signedProp)
 	assert.NoError(t, err)
+	assert.EqualValues(t, 200, pResp.Response.Status)
+}
+
+func attachPluginEndorser(support *em.MockSupport) {
+	csr := &mocks.ChannelStateRetriever{}
+	queryCreator := &mocks.QueryCreator{}
+	csr.On("NewQueryCreator", mock.Anything).Return(queryCreator, nil)
+	sif := &mocks.SigningIdentityFetcher{}
+	sif.On("SigningIdentityForRequest", mock.Anything).Return(support, nil)
+	pm := &mocks.PluginMapper{}
+	pm.On("PluginFactoryByName", mock.Anything).Return(&builtin.DefaultEndorsementFactory{})
+	support.PluginEndorser = endorser.NewPluginEndorser(&endorser.PluginSupport{
+		ChannelStateRetriever:   csr,
+		SigningIdentityFetcher:  sif,
+		PluginMapper:            pm,
+		TransientStoreRetriever: mockTransientStoreRetriever,
+	})
+}
+
+func TestEndorseWithPlugin(t *testing.T) {
+	m := &mock.Mock{}
+	m.On("Sign", mock.Anything).Return([]byte{1, 2, 3, 4, 5}, nil)
+	m.On("Serialize").Return([]byte{1, 1, 1}, nil)
+	m.On("GetTxSimulator", mock.Anything, mock.Anything).Return(newMockTxSim(), nil)
+	support := &em.MockSupport{
+		Mock: m,
+		GetApplicationConfigBoolRv: true,
+		GetApplicationConfigRv:     &mc.MockApplication{CapabilitiesRv: &mc.MockApplicationCapabilities{}},
+		GetTransactionByIDErr:      errors.New("can't find this transaction in the index"),
+		ChaincodeDefinitionRv:      &resourceconfig.MockChaincodeDefinition{EndorsementStr: "ESCC"},
+		ExecuteResp:                &pb.Response{Status: 200, Payload: []byte{1}},
+	}
+	attachPluginEndorser(support)
+
+	es := endorser.NewEndorserServer(pvtEmptyDistributor, support, platforms.NewRegistry(&golang.Platform{}))
+
+	signedProp := getSignedProp("ccid", "0", t)
+
+	resp, err := es.ProcessProposal(context.Background(), signedProp)
+	assert.NoError(t, err)
+	assert.Equal(t, []byte{1, 2, 3, 4, 5}, resp.Endorsement.Signature)
+	assert.Equal(t, []byte{1, 1, 1}, resp.Endorsement.Endorser)
+	assert.Equal(t, 200, int(resp.Response.Status))
 }
 
 func TestSimulateProposal(t *testing.T) {
-	es := NewEndorserServer(func(channel string, txID string, privateData *rwset.TxPvtReadWriteSet) error {
-		return nil
-	}, &em.MockSupport{
+	es := endorser.NewEndorserServer(pvtEmptyDistributor, &em.MockSupport{
 		GetApplicationConfigBoolRv: true,
-		GetApplicationConfigRv:     &mc.MockApplication{&mc.MockApplicationCapabilities{}},
+		GetApplicationConfigRv:     &mc.MockApplication{CapabilitiesRv: &mc.MockApplicationCapabilities{}},
 		GetTransactionByIDErr:      errors.New(""),
-		ChaincodeDefinitionRv:      &resourceconfig.MockChaincodeDefinition{EndorsementStr: "ESCC"},
+		ChaincodeDefinitionRv:      &ccprovider.ChaincodeData{Escc: "ESCC"},
 		ExecuteResp:                &pb.Response{Status: 200, Payload: utils.MarshalOrPanic(&pb.ProposalResponse{Response: &pb.Response{}})},
-		GetTxSimulatorRv:           &ccprovider.MockTxSim{&ledger.TxSimulationResults{PubSimulationResults: &rwset.TxReadWriteSet{}}},
-	})
+		GetTxSimulatorRv: &mockccprovider.MockTxSim{
+			GetTxSimulationResultsRv: &ledger.TxSimulationResults{
+				PubSimulationResults: &rwset.TxReadWriteSet{},
+			},
+		},
+	}, platforms.NewRegistry(&golang.Platform{}))
 
-	_, _, _, _, err := es.(*Endorser).simulateProposal(nil, "", "", nil, nil, nil, nil)
+	_, _, _, _, err := es.SimulateProposal(nil, "", "", nil, nil, nil, nil)
 	assert.Error(t, err)
 }
 
 func TestEndorserJavaChecks(t *testing.T) {
-	if javaEnabled() {
+	if endorser.JavaEnabled() {
 		t.Skip("Java chaincode is supported")
 	}
 
-	es := NewEndorserServer(func(channel string, txID string, privateData *rwset.TxPvtReadWriteSet) error {
-		return nil
-	}, &em.MockSupport{
+	es := endorser.NewEndorserServer(pvtEmptyDistributor, &em.MockSupport{
 		GetApplicationConfigBoolRv: true,
-		GetApplicationConfigRv:     &mc.MockApplication{&mc.MockApplicationCapabilities{}},
+		GetApplicationConfigRv:     &mc.MockApplication{CapabilitiesRv: &mc.MockApplicationCapabilities{}},
 		GetTransactionByIDErr:      errors.New(""),
-		ChaincodeDefinitionRv:      &resourceconfig.MockChaincodeDefinition{EndorsementStr: "ESCC"},
+		ChaincodeDefinitionRv:      &ccprovider.ChaincodeData{Escc: "ESCC"},
 		ExecuteResp:                &pb.Response{Status: 200, Payload: utils.MarshalOrPanic(&pb.ProposalResponse{Response: &pb.Response{}})},
-		GetTxSimulatorRv:           &ccprovider.MockTxSim{&ledger.TxSimulationResults{PubSimulationResults: &rwset.TxReadWriteSet{}}},
-	})
+		GetTxSimulatorRv: &mockccprovider.MockTxSim{
+			GetTxSimulationResultsRv: &ledger.TxSimulationResults{
+				PubSimulationResults: &rwset.TxReadWriteSet{},
+			},
+		},
+	}, platforms.NewRegistry(&golang.Platform{}))
 
-	err := es.(*Endorser).disableJavaCCInst(&pb.ChaincodeID{Name: "lscc"}, &pb.ChaincodeInvocationSpec{})
+	err := es.DisableJavaCCInst(&pb.ChaincodeID{Name: "lscc"}, &pb.ChaincodeInvocationSpec{})
 	assert.NoError(t, err)
-	err = es.(*Endorser).disableJavaCCInst(&pb.ChaincodeID{Name: "lscc"}, &pb.ChaincodeInvocationSpec{ChaincodeSpec: &pb.ChaincodeSpec{Input: &pb.ChaincodeInput{}}})
+	err = es.DisableJavaCCInst(&pb.ChaincodeID{Name: "lscc"}, &pb.ChaincodeInvocationSpec{ChaincodeSpec: &pb.ChaincodeSpec{Input: &pb.ChaincodeInput{}}})
 	assert.NoError(t, err)
-	err = es.(*Endorser).disableJavaCCInst(&pb.ChaincodeID{Name: "lscc"}, &pb.ChaincodeInvocationSpec{ChaincodeSpec: &pb.ChaincodeSpec{Input: &pb.ChaincodeInput{Args: [][]byte{[]byte("foo")}}}})
+	err = es.DisableJavaCCInst(&pb.ChaincodeID{Name: "lscc"}, &pb.ChaincodeInvocationSpec{ChaincodeSpec: &pb.ChaincodeSpec{Input: &pb.ChaincodeInput{Args: [][]byte{[]byte("foo")}}}})
 	assert.NoError(t, err)
-	err = es.(*Endorser).disableJavaCCInst(&pb.ChaincodeID{Name: "lscc"}, &pb.ChaincodeInvocationSpec{ChaincodeSpec: &pb.ChaincodeSpec{Input: &pb.ChaincodeInput{Args: [][]byte{[]byte("install")}}}})
+	err = es.DisableJavaCCInst(&pb.ChaincodeID{Name: "lscc"}, &pb.ChaincodeInvocationSpec{ChaincodeSpec: &pb.ChaincodeSpec{Input: &pb.ChaincodeInput{Args: [][]byte{[]byte("install")}}}})
 	assert.Error(t, err)
 }
 
-func TestChaincodeError_Error(t *testing.T) {
-	ce := &chaincodeError{status: 1, msg: "foo"}
-	assert.Equal(t, ce.Error(), "chaincode error (status: 1, message: foo)")
+func TestEndorserAcquireTxSimulator(t *testing.T) {
+	tc := []struct {
+		name          string
+		chainID       string
+		chaincodeName string
+		simAcquired   bool
+	}{
+		{"empty channel", "", "ignored", false},
+		{"query scc", util.GetTestChainID(), "qscc", false},
+		{"config scc", util.GetTestChainID(), "cscc", false},
+		{"mainline", util.GetTestChainID(), "chaincode", true},
+	}
+
+	expectedResponse := &pb.Response{Status: 200, Payload: utils.MarshalOrPanic(&pb.ProposalResponse{Response: &pb.Response{}})}
+	for _, tt := range tc {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			m := &mock.Mock{}
+			m.On("Sign", mock.Anything).Return([]byte{1, 2, 3, 4, 5}, nil)
+			m.On("Serialize").Return([]byte{1, 1, 1}, nil)
+			m.On("GetTxSimulator", mock.Anything, mock.Anything).Return(newMockTxSim(), nil)
+			support := &em.MockSupport{
+				Mock: m,
+				GetApplicationConfigBoolRv: true,
+				GetApplicationConfigRv:     &mc.MockApplication{CapabilitiesRv: &mc.MockApplicationCapabilities{}},
+				GetTransactionByIDErr:      errors.New(""),
+				ChaincodeDefinitionRv:      &ccprovider.ChaincodeData{Escc: "ESCC"},
+				ExecuteResp:                expectedResponse,
+			}
+			attachPluginEndorser(support)
+			es := endorser.NewEndorserServer(
+				pvtEmptyDistributor,
+				support,
+				platforms.NewRegistry(&golang.Platform{}),
+			)
+
+			t.Parallel()
+			args := [][]byte{[]byte("args")}
+			signedProp := getSignedPropWithCHIdAndArgs(tt.chainID, tt.chaincodeName, "version", args, t)
+
+			resp, err := es.ProcessProposal(context.Background(), signedProp)
+			assert.NoError(t, err)
+			assert.Equal(t, expectedResponse, resp.Response)
+
+			if tt.simAcquired {
+				m.AssertCalled(t, "GetTxSimulator", mock.Anything, mock.Anything)
+			} else {
+				m.AssertNotCalled(t, "GetTxSimulator", mock.Anything, mock.Anything)
+			}
+		})
+	}
 }
 
 func TestEndorserAcquireTxSimulator(t *testing.T) {
@@ -583,12 +769,20 @@ func TestMain(m *testing.M) {
 
 //go:generate counterfeiter -o mocks/support.go --fake-name Support . support
 type support interface {
+<<<<<<< HEAD
 	Support
+=======
+	endorser.Support
+>>>>>>> 95483dd862a768c588c2582e88f6b9da37a47ed7
 }
 
 func TestUserCDSSanitization(t *testing.T) {
 	fakeSupport := &mocks.Support{}
+<<<<<<< HEAD
 	e := NewEndorserServer(nil, fakeSupport)
+=======
+	e := endorser.NewEndorserServer(nil, fakeSupport, nil)
+>>>>>>> 95483dd862a768c588c2582e88f6b9da37a47ed7
 
 	userCDS := &pb.ChaincodeDeploymentSpec{
 		ChaincodeSpec: &pb.ChaincodeSpec{
@@ -619,7 +813,11 @@ func TestUserCDSSanitization(t *testing.T) {
 
 	fakeSupport.GetChaincodeDeploymentSpecFSReturns(fsCDS, nil)
 
+<<<<<<< HEAD
 	sanitizedCDS, err := e.(*Endorser).SanitizeUserCDS(userCDS)
+=======
+	sanitizedCDS, err := e.SanitizeUserCDS(userCDS)
+>>>>>>> 95483dd862a768c588c2582e88f6b9da37a47ed7
 	assert.NoError(t, err)
 	assert.Nil(t, sanitizedCDS.CodePackage)
 	assert.True(t, proto.Equal(userCDS.ChaincodeSpec.Input, sanitizedCDS.ChaincodeSpec.Input))
@@ -627,7 +825,11 @@ func TestUserCDSSanitization(t *testing.T) {
 
 	t.Run("BadPath", func(t *testing.T) {
 		fakeSupport.GetChaincodeDeploymentSpecFSReturns(nil, fmt.Errorf("fake-error"))
+<<<<<<< HEAD
 		_, err := e.(*Endorser).SanitizeUserCDS(userCDS)
+=======
+		_, err := e.SanitizeUserCDS(userCDS)
+>>>>>>> 95483dd862a768c588c2582e88f6b9da37a47ed7
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "fake-error")
 	})

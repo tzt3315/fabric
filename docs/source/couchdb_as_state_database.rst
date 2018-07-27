@@ -37,12 +37,19 @@ default embedded LevelDB, and move to CouchDB if you require the additional comp
 It is a good practice to model chaincode asset data as JSON, so that you have the option to perform
 complex rich queries if needed in the future.
 
+<<<<<<< HEAD
 .. note:: A JSON document cannot use the following field names at the top level.
    These are reserved for internal use.
 
    - ``_deleted``
    - ``_id``
    - ``_rev``
+=======
+.. note:: The key for a CouchDB JSON document cannot begin with an underscore ("_").  Also, a JSON
+   document cannot use the following field names at the top level.  These are reserved for internal use.
+
+   - ``Any field beginning with an underscore, "_"``
+>>>>>>> 95483dd862a768c588c2582e88f6b9da37a47ed7
    - ``~version``
 
 Using CouchDB from Chaincode

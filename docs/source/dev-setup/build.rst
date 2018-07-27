@@ -49,6 +49,7 @@ client SDK is not broken by your changes. To run the Node.js unit tests,
 follow the instructions
 `here <https://github.com/hyperledger/fabric-sdk-node/blob/master/README.md>`__.
 
+<<<<<<< HEAD
 Running Behave BDD Tests
 ~~~~~~~~~~~~~~~~~~~~~~~~
 
@@ -74,6 +75,8 @@ with this option:
     cd $GOPATH/src/github.com/hyperledger/fabric/bddtests
     behave -D logs=Y
 
+=======
+>>>>>>> 95483dd862a768c588c2582e88f6b9da37a47ed7
 Building outside of Vagrant
 ---------------------------
 
@@ -86,7 +89,7 @@ Building on Z
 ~~~~~~~~~~~~~
 
 To make building on Z easier and faster, `this
-script <https://github.com/hyperledger/fabric/tree/master/devenv/setupRHELonZ.sh>`__
+script <https://github.com/hyperledger/fabric/blob/master/devenv/setupRHELonZ.sh>`__
 is provided (which is similar to the `setup
 file <https://github.com/hyperledger/fabric/blob/master/devenv/setup.sh>`__
 provided for vagrant). This script has been tested only on RHEL 7.2 and
@@ -111,7 +114,7 @@ development environment.
 ::
 
     cd $GOPATH/src/github.com/hyperledger/fabric
-    make peer unit-test behave
+    make peer unit-test
 
 Building on Power Platform
 ~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -119,7 +122,7 @@ Building on Power Platform
 Development and build on Power (ppc64le) systems is done outside of
 vagrant as outlined `here <#building-outside-of-vagrant>`__. For ease
 of setting up the dev environment on Ubuntu, invoke `this
-script <https://github.com/hyperledger/fabric/tree/master/devenv/setupUbuntuOnPPC64le.sh>`__
+script <https://github.com/hyperledger/fabric/blob/master/devenv/setupUbuntuOnPPC64le.sh>`__
 as root. This script has been validated on Ubuntu 16.04 and assumes
 certain things (like, development system has OS repositories in place,
 firewall setting etc) and in general can be improvised further.

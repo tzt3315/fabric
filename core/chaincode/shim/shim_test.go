@@ -22,7 +22,6 @@ import (
 	"strconv"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/hyperledger/fabric/common/flogging"
 	mockpeer "github.com/hyperledger/fabric/common/mocks/peer"
@@ -555,14 +554,11 @@ func TestInvoke(t *testing.T) {
 	streamGetter = mockChaincodeStreamGetter
 	cc := &shimTestCC{}
 	//viper.Set("chaincode.logging.shim", "debug")
-	var err error
 	ccname := "shimTestCC"
 	peerSide := setupcc(ccname, cc)
 	defer mockPeerCCSupport.RemoveCC(ccname)
 	//start the shim+chaincode
-	go func() {
-		err = Start(cc)
-	}()
+	go Start(cc)
 
 	done := setuperror()
 
@@ -570,13 +566,17 @@ func TestInvoke(t *testing.T) {
 		done <- err
 	}
 
+	peerDone := make(chan struct{})
+	defer close(peerDone)
+
 	//start the mock peer
 	go func() {
 		respSet := &mockpeer.MockResponseSet{errorFunc, nil, []*mockpeer.MockResponse{
 			{&pb.ChaincodeMessage{Type: pb.ChaincodeMessage_REGISTER}, &pb.ChaincodeMessage{Type: pb.ChaincodeMessage_REGISTERED}}}}
 		peerSide.SetResponses(respSet)
 		peerSide.SetKeepAlive(&pb.ChaincodeMessage{Type: pb.ChaincodeMessage_KEEPALIVE})
-		err = peerSide.Run()
+		err := peerSide.Run(peerDone)
+		assert.NoError(t, err, "peer side run failed")
 	}()
 
 	//wait for init
@@ -833,15 +833,11 @@ func TestInvoke(t *testing.T) {
 
 	//wait for done
 	processDone(t, done, false)
-
-	time.Sleep(1 * time.Second)
-	peerSide.Quit()
 }
 
 func TestStartInProc(t *testing.T) {
 	streamGetter = mockChaincodeStreamGetter
 	cc := &shimTestCC{}
-	var err error
 	ccname := "shimTestCC"
 	peerSide := setupcc(ccname, cc)
 	defer mockPeerCCSupport.RemoveCC(ccname)
@@ -852,42 +848,38 @@ func TestStartInProc(t *testing.T) {
 		done <- err
 	}
 
+	peerDone := make(chan struct{})
+	defer close(peerDone)
+
 	//start the mock peer
 	go func() {
 		respSet := &mockpeer.MockResponseSet{doneFunc, nil, []*mockpeer.MockResponse{
 			{&pb.ChaincodeMessage{Type: pb.ChaincodeMessage_REGISTER}, &pb.ChaincodeMessage{Type: pb.ChaincodeMessage_REGISTERED}}}}
 		peerSide.SetResponses(respSet)
 		peerSide.SetKeepAlive(&pb.ChaincodeMessage{Type: pb.ChaincodeMessage_KEEPALIVE})
-		err = peerSide.Run()
+		err := peerSide.Run(peerDone)
+		assert.NoError(t, err, "peer side run failed")
 	}()
 
 	//start the shim+chaincode
-	go func() {
-		err = StartInProc([]string{"CORE_CHAINCODE_ID_NAME=shimTestCC", "CORE_CHAINCODE_LOGGING_SHIM=debug"}, nil, cc, peerSide.GetSendStream(), peerSide.GetRecvStream())
-	}()
+	go StartInProc([]string{"CORE_CHAINCODE_ID_NAME=shimTestCC", "CORE_CHAINCODE_LOGGING_SHIM=debug"}, nil, cc, peerSide.GetSendStream(), peerSide.GetRecvStream())
 
 	//wait for init
 	processDone(t, done, false)
 
 	channelId := "testchannel"
 	peerSide.Send(&pb.ChaincodeMessage{Type: pb.ChaincodeMessage_READY, Txid: "1", ChannelId: channelId})
-
-	time.Sleep(1 * time.Second)
-	peerSide.Quit()
 }
 
 func TestCC2CC(t *testing.T) {
 	streamGetter = mockChaincodeStreamGetter
 	cc := &shimTestCC{}
 	//viper.Set("chaincode.logging.shim", "debug")
-	var err error
 	ccname := "shimTestCC"
 	peerSide := setupcc(ccname, cc)
 	defer mockPeerCCSupport.RemoveCC(ccname)
 	//start the shim+chaincode
-	go func() {
-		err = Start(cc)
-	}()
+	go Start(cc)
 
 	done := setuperror()
 
@@ -895,13 +887,17 @@ func TestCC2CC(t *testing.T) {
 		done <- err
 	}
 
+	peerDone := make(chan struct{})
+	defer close(peerDone)
+
 	//start the mock peer
 	go func() {
 		respSet := &mockpeer.MockResponseSet{errorFunc, nil, []*mockpeer.MockResponse{
 			{&pb.ChaincodeMessage{Type: pb.ChaincodeMessage_REGISTER}, &pb.ChaincodeMessage{Type: pb.ChaincodeMessage_REGISTERED}}}}
 		peerSide.SetResponses(respSet)
 		peerSide.SetKeepAlive(&pb.ChaincodeMessage{Type: pb.ChaincodeMessage_KEEPALIVE})
-		err = peerSide.Run()
+		err := peerSide.Run(peerDone)
+		assert.NoError(t, err, "peer side run failed")
 	}()
 
 	//wait for init
@@ -950,9 +946,6 @@ func TestCC2CC(t *testing.T) {
 
 	//wait for done
 	processDone(t, done, false)
-
-	time.Sleep(1 * time.Second)
-	peerSide.Quit()
 }
 
 func TestRealPeerStream(t *testing.T) {

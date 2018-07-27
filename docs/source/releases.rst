@@ -1,6 +1,7 @@
-Release Notes
-=============
+Releases
+========
 
+<<<<<<< HEAD
 `v1.1.0 <https://github.com/hyperledger/fabric/releases/tag/v1.1.0>`__ - March 15, 2018
 ---------------------------------------------------------------------------------------
 The v1.1 release includes all of the features delivered in v1.1.0-preview
@@ -434,6 +435,9 @@ CLIs Known Key Bugs and work in progress
 -  1911 - Missing peer event listener on the client SDK
 -  889 - The attributes in the TCert are not encrypted. This work is
    still on-going
+=======
+Hyperledger Fabric releases are documented on the `Fabric github page <https://github.com/hyperledger/fabric#releases>`__.
+>>>>>>> 95483dd862a768c588c2582e88f6b9da37a47ed7
 
 .. Licensed under Creative Commons Attribution 4.0 International License
    https://creativecommons.org/licenses/by/4.0/

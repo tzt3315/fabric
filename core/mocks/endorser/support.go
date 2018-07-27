@@ -8,7 +8,8 @@ package endorser
 
 import (
 	"github.com/hyperledger/fabric/common/channelconfig"
-	"github.com/hyperledger/fabric/common/resourcesconfig"
+	"github.com/hyperledger/fabric/core/common/ccprovider"
+	"github.com/hyperledger/fabric/core/endorser"
 	"github.com/hyperledger/fabric/core/ledger"
 	mc "github.com/hyperledger/fabric/core/mocks/ccprovider"
 	"github.com/hyperledger/fabric/protos/common"
@@ -19,6 +20,10 @@ import (
 
 type MockSupport struct {
 	*mock.Mock
+<<<<<<< HEAD
+=======
+	*endorser.PluginEndorser
+>>>>>>> 95483dd862a768c588c2582e88f6b9da37a47ed7
 	IsSysCCAndNotInvokableExternalRv bool
 	IsSysCCRv                        bool
 	ExecuteCDSResp                   *pb.Response
@@ -27,7 +32,7 @@ type MockSupport struct {
 	ExecuteResp                      *pb.Response
 	ExecuteEvent                     *pb.ChaincodeEvent
 	ExecuteError                     error
-	ChaincodeDefinitionRv            resourcesconfig.ChaincodeDefinition
+	ChaincodeDefinitionRv            ccprovider.ChaincodeDefinition
 	ChaincodeDefinitionError         error
 	GetTxSimulatorRv                 *mc.MockTxSim
 	GetTxSimulatorErr                error
@@ -39,6 +44,24 @@ type MockSupport struct {
 	IsJavaErr                        error
 	GetApplicationConfigRv           channelconfig.Application
 	GetApplicationConfigBoolRv       bool
+}
+
+func (s *MockSupport) Serialize() ([]byte, error) {
+	args := s.Called()
+	return args.Get(0).([]byte), args.Error(1)
+}
+
+func (s *MockSupport) NewQueryCreator(channel string) (endorser.QueryCreator, error) {
+	panic("implement me")
+}
+
+func (s *MockSupport) Sign(message []byte) ([]byte, error) {
+	args := s.Called(message)
+	return args.Get(0).([]byte), args.Error(1)
+}
+
+func (s *MockSupport) ChannelState(channel string) (endorser.QueryCreator, error) {
+	panic("implement me")
 }
 
 func (s *MockSupport) IsSysCCAndNotInvokableExternal(name string) bool {
@@ -62,6 +85,11 @@ func (s *MockSupport) GetTransactionByID(chid, txID string) (*pb.ProcessedTransa
 	return nil, s.GetTransactionByIDErr
 }
 
+func (s *MockSupport) GetLedgerHeight(channelID string) (uint64, error) {
+	args := s.Called(channelID)
+	return args.Get(0).(uint64), args.Error(1)
+}
+
 func (s *MockSupport) IsSysCC(name string) bool {
 	if s.SysCCMap != nil {
 		_, in := s.SysCCMap[name]
@@ -70,7 +98,7 @@ func (s *MockSupport) IsSysCC(name string) bool {
 	return s.IsSysCCRv
 }
 
-func (s *MockSupport) Execute(ctxt context.Context, cid, name, version, txid string, syscc bool, signedProp *pb.SignedProposal, prop *pb.Proposal, spec interface{}) (*pb.Response, *pb.ChaincodeEvent, error) {
+func (s *MockSupport) Execute(ctxt context.Context, cid, name, version, txid string, syscc bool, signedProp *pb.SignedProposal, prop *pb.Proposal, spec ccprovider.ChaincodeSpecGetter) (*pb.Response, *pb.ChaincodeEvent, error) {
 	if spec != nil {
 		if _, istype := spec.(*pb.ChaincodeDeploymentSpec); istype {
 			return s.ExecuteCDSResp, s.ExecuteCDSEvent, s.ExecuteCDSError
@@ -80,7 +108,11 @@ func (s *MockSupport) Execute(ctxt context.Context, cid, name, version, txid str
 	return s.ExecuteResp, s.ExecuteEvent, s.ExecuteError
 }
 
-func (s *MockSupport) GetChaincodeDefinition(ctx context.Context, chainID string, txid string, signedProp *pb.SignedProposal, prop *pb.Proposal, chaincodeID string, txsim ledger.TxSimulator) (resourcesconfig.ChaincodeDefinition, error) {
+func (s *MockSupport) GetChaincodeDeploymentSpecFS(cds *pb.ChaincodeDeploymentSpec) (*pb.ChaincodeDeploymentSpec, error) {
+	return cds, nil
+}
+
+func (s *MockSupport) GetChaincodeDefinition(ctx context.Context, chainID string, txid string, signedProp *pb.SignedProposal, prop *pb.Proposal, chaincodeID string, txsim ledger.TxSimulator) (ccprovider.ChaincodeDefinition, error) {
 	return s.ChaincodeDefinitionRv, s.ChaincodeDefinitionError
 }
 
@@ -96,7 +128,7 @@ func (s *MockSupport) IsJavaCC(buf []byte) (bool, error) {
 	return s.IsJavaRV, s.IsJavaErr
 }
 
-func (s *MockSupport) CheckInstantiationPolicy(name, version string, cd resourcesconfig.ChaincodeDefinition) error {
+func (s *MockSupport) CheckInstantiationPolicy(name, version string, cd ccprovider.ChaincodeDefinition) error {
 	return s.CheckInstantiationPolicyError
 }
 

@@ -1,17 +1,7 @@
 /*
-Copyright IBM Corp. 2016 All Rights Reserved.
+Copyright IBM Corp. All Rights Reserved.
 
-Licensed under the Apache License, Version 2.0 (the "License");
-you may not use this file except in compliance with the License.
-You may obtain a copy of the License at
-
-		 http://www.apache.org/licenses/LICENSE-2.0
-
-Unless required by applicable law or agreed to in writing, software
-distributed under the License is distributed on an "AS IS" BASIS,
-WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-See the License for the specific language governing permissions and
-limitations under the License.
+SPDX-License-Identifier: Apache-2.0
 */
 
 package utils_test
@@ -27,6 +17,8 @@ import (
 
 	"github.com/golang/protobuf/proto"
 	"github.com/hyperledger/fabric/common/util"
+	"github.com/hyperledger/fabric/core/chaincode/platforms"
+	"github.com/hyperledger/fabric/core/chaincode/platforms/golang"
 	"github.com/hyperledger/fabric/msp"
 	mspmgmt "github.com/hyperledger/fabric/msp/mgmt"
 	"github.com/hyperledger/fabric/msp/mgmt/testtools"
@@ -167,7 +159,9 @@ func TestGetNonce(t *testing.T) {
 }
 
 func TestGetChaincodeDeploymentSpec(t *testing.T) {
-	_, err := utils.GetChaincodeDeploymentSpec([]byte("bad spec"))
+	pr := platforms.NewRegistry(&golang.Platform{})
+
+	_, err := utils.GetChaincodeDeploymentSpec([]byte("bad spec"), pr)
 	assert.Error(t, err, "Expected error with malformed spec")
 
 	cds, _ := proto.Marshal(&pb.ChaincodeDeploymentSpec{
@@ -175,7 +169,7 @@ func TestGetChaincodeDeploymentSpec(t *testing.T) {
 			Type: pb.ChaincodeSpec_GOLANG,
 		},
 	})
-	_, err = utils.GetChaincodeDeploymentSpec(cds)
+	_, err = utils.GetChaincodeDeploymentSpec(cds, pr)
 	assert.NoError(t, err, "Unexpected error getting deployment spec")
 
 	cds, _ = proto.Marshal(&pb.ChaincodeDeploymentSpec{
@@ -183,7 +177,7 @@ func TestGetChaincodeDeploymentSpec(t *testing.T) {
 			Type: pb.ChaincodeSpec_UNDEFINED,
 		},
 	})
-	_, err = utils.GetChaincodeDeploymentSpec(cds)
+	_, err = utils.GetChaincodeDeploymentSpec(cds, pr)
 	assert.Error(t, err, "Expected error with invalid spec type")
 
 }
@@ -216,7 +210,7 @@ func TestCDSProposals(t *testing.T) {
 	assert.NotEqual(t, "", txid, "txid should not be empty")
 
 	// upgrade
-	prop, txid, err = utils.CreateUpgradeProposalFromCDS(chainID, cds, creator, policy, escc, vscc)
+	prop, txid, err = utils.CreateUpgradeProposalFromCDS(chainID, cds, creator, policy, escc, vscc, nil)
 	assert.NotNil(t, prop, "Upgrade proposal should not be nil")
 	assert.NoError(t, err, "Unexpected error creating upgrade proposal")
 	assert.NotEqual(t, "", txid, "txid should not be empty")
@@ -356,6 +350,33 @@ func TestProposal(t *testing.T) {
 		t.Fatalf("Failed checking Transient field. Invalid value, expectext 'transient', got [%s]", string(value))
 		return
 	}
+}
+
+func TestProposalWithTxID(t *testing.T) {
+	// create a proposal from a ChaincodeInvocationSpec
+	prop, txid, err := utils.CreateChaincodeProposalWithTxIDAndTransient(
+		common.HeaderType_ENDORSER_TRANSACTION,
+		util.GetTestChainID(),
+		createCIS(),
+		[]byte("creator"),
+		"testtx",
+		map[string][]byte{"certx": []byte("transient")},
+	)
+	assert.Nil(t, err)
+	assert.NotNil(t, prop)
+	assert.Equal(t, txid, "testtx")
+
+	prop, txid, err = utils.CreateChaincodeProposalWithTxIDAndTransient(
+		common.HeaderType_ENDORSER_TRANSACTION,
+		util.GetTestChainID(),
+		createCIS(),
+		[]byte("creator"),
+		"",
+		map[string][]byte{"certx": []byte("transient")},
+	)
+	assert.Nil(t, err)
+	assert.NotNil(t, prop)
+	assert.NotEmpty(t, txid)
 }
 
 func TestProposalResponse(t *testing.T) {

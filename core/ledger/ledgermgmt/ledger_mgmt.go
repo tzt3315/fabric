@@ -25,6 +25,7 @@ import (
 	"fmt"
 
 	"github.com/hyperledger/fabric/common/flogging"
+	"github.com/hyperledger/fabric/core/chaincode/platforms"
 	"github.com/hyperledger/fabric/core/ledger"
 	"github.com/hyperledger/fabric/core/ledger/customtx"
 	"github.com/hyperledger/fabric/core/ledger/kvledger"
@@ -47,25 +48,26 @@ var initialized bool
 var once sync.Once
 
 // Initialize initializes ledgermgmt
-func Initialize(customTxProcessors customtx.Processors) {
+func Initialize(customTxProcessors customtx.Processors, pr *platforms.Registry) {
 	once.Do(func() {
-		initialize(customTxProcessors)
+		initialize(customTxProcessors, nil, pr)
 	})
 }
 
-func initialize(customTxProcessors customtx.Processors) {
+func initialize(customTxProcessors customtx.Processors, statelisteners []ledger.StateListener, pr *platforms.Registry) {
 	logger.Info("Initializing ledger mgmt")
 	lock.Lock()
 	defer lock.Unlock()
 	initialized = true
 	openedLedgers = make(map[string]ledger.PeerLedger)
 	customtx.Initialize(customTxProcessors)
-	cceventmgmt.Initialize()
+	cceventmgmt.Initialize(pr)
+	finalStateListeners := addListenerForCCEventsHandler(statelisteners)
 	provider, err := kvledger.NewProvider()
 	if err != nil {
 		panic(fmt.Errorf("Error in instantiating ledger provider: %s", err))
 	}
-	provider.Initialize(kvLedgerStateListeners)
+	provider.Initialize(finalStateListeners)
 	ledgerProvider = provider
 	logger.Info("ledger mgmt initialized")
 }
@@ -163,4 +165,10 @@ func (l *closableLedger) Close() {
 func (l *closableLedger) closeWithoutLock() {
 	l.PeerLedger.Close()
 	delete(openedLedgers, l.id)
+}
+
+// lscc namespace listener for chaincode instantiate transactions (which manipulates data in 'lscc' namespace)
+// this code should be later moved to peer and passed via `Initialize` function of ledgermgmt
+func addListenerForCCEventsHandler(stateListeners []ledger.StateListener) []ledger.StateListener {
+	return append(stateListeners, &cceventmgmt.KVLedgerLSCCStateListener{})
 }

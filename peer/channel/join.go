@@ -132,10 +132,12 @@ func join(cmd *cobra.Command, args []string, cf *ChannelCmdFactory) error {
 	if genesisBlockPath == common.UndefinedParamValue {
 		return errors.New("Must supply genesis block path")
 	}
+	// Parsing of the command line is done so silence cmd usage
+	cmd.SilenceUsage = true
 
 	var err error
 	if cf == nil {
-		cf, err = InitCmdFactory(EndorserRequired, OrdererNotRequired)
+		cf, err = InitCmdFactory(EndorserRequired, PeerDeliverNotRequired, OrdererNotRequired)
 		if err != nil {
 			return err
 		}

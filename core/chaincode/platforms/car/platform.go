@@ -25,6 +25,7 @@ import (
 	"fmt"
 	"io"
 
+	"github.com/hyperledger/fabric/core/chaincode/platforms/ccmetadata"
 	"github.com/hyperledger/fabric/core/chaincode/platforms/util"
 	cutil "github.com/hyperledger/fabric/core/container/util"
 	pb "github.com/hyperledger/fabric/protos/peer"
@@ -32,6 +33,11 @@ import (
 
 // Platform for the CAR type
 type Platform struct {
+}
+
+// Name returns the name of this platform
+func (carPlatform *Platform) Name() string {
+	return pb.ChaincodeSpec_CAR.String()
 }
 
 // ValidateSpec validates the chaincode specification for CAR types to satisfy
@@ -88,4 +94,9 @@ func (carPlatform *Platform) GenerateDockerBuild(cds *pb.ChaincodeDeploymentSpec
 	}
 
 	return cutil.WriteBytesToPackage("binpackage.tar", binpackage.Bytes(), tw)
+}
+
+//GetMetadataProvider fetches metadata provider given deployment spec
+func (carPlatform *Platform) GetMetadataProvider(cds *pb.ChaincodeDeploymentSpec) ccmetadata.MetadataProvider {
+	return &MetadataProvider{}
 }
